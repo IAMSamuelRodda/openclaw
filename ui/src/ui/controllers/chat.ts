@@ -210,6 +210,18 @@ function dataUrlToBase64(dataUrl: string): { content: string; mimeType: string }
   return { mimeType: match[1], content: match[2] };
 }
 
+function normalizeAttachmentMimeType(mimeType: string | null | undefined): string | undefined {
+  if (typeof mimeType !== "string") {
+    return undefined;
+  }
+  const normalized = mimeType.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function isImageMimeType(mimeType: string | null | undefined): boolean {
+  return (normalizeAttachmentMimeType(mimeType) ?? "").startsWith("image/");
+}
+
 function buildApiAttachments(attachments?: ChatAttachment[]) {
   const hasAttachments = attachments && attachments.length > 0;
   return hasAttachments
@@ -219,9 +231,11 @@ function buildApiAttachments(attachments?: ChatAttachment[]) {
           if (!parsed) {
             return null;
           }
-          const mimeType = parsed.mimeType || att.mimeType || "application/octet-stream";
+          const mimeType =
+            normalizeAttachmentMimeType(parsed.mimeType || att.mimeType) ??
+            "application/octet-stream";
           return {
-            type: mimeType.startsWith("image/") ? "image" : "file",
+            type: isImageMimeType(mimeType) ? "image" : "file",
             mimeType,
             content: parsed.content,
             ...(att.fileName ? { fileName: att.fileName } : {}),
@@ -317,8 +331,8 @@ export async function sendChatMessage(
   // Preserve local attachment rendering for both images and generic files.
   if (hasAttachments) {
     for (const att of attachments) {
-      const mimeType = att.mimeType || "application/octet-stream";
-      if (mimeType.startsWith("image/")) {
+      const mimeType = normalizeAttachmentMimeType(att.mimeType) ?? "application/octet-stream";
+      if (isImageMimeType(mimeType)) {
         contentBlocks.push({
           type: "image",
           source: { type: "base64", media_type: mimeType, data: att.dataUrl },

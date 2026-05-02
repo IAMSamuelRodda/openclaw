@@ -47,6 +47,7 @@ export function resolveProviderAuthOverview(params: {
   cfg: OpenClawConfig;
   store: AuthProfileStore;
   modelsPath: string;
+  authStorePath?: string;
   syntheticAuth?: { value: string; source: string };
 }): ProviderAuthOverview {
   const { provider, cfg, store } = params;
@@ -112,7 +113,7 @@ export function resolveProviderAuthOverview(params: {
     if (profiles.length > 0) {
       return {
         kind: "profiles",
-        detail: shortenHomePath(resolveAuthStorePathForDisplay()),
+        detail: shortenHomePath(params.authStorePath ?? resolveAuthStorePathForDisplay()),
       };
     }
     if (envKey) {

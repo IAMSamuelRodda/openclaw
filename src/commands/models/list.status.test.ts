@@ -49,9 +49,9 @@ const mocks = vi.hoisted(() => {
         .map(([id]) => id);
     }),
     resolveAuthProfileDisplayLabel: vi.fn(({ profileId }: { profileId: string }) => profileId),
-    resolveAuthStorePathForDisplay: vi
-      .fn()
-      .mockReturnValue("/tmp/openclaw-agent/auth-profiles.json"),
+    resolveAuthStorePathForDisplay: vi.fn(
+      (agentDir?: string) => `${agentDir ?? "/tmp/openclaw-agent"}/auth-profiles.json`,
+    ),
     resolveProfileUnusableUntilForDisplay: vi.fn().mockReturnValue(undefined),
     resolveEnvApiKey: vi.fn((provider: string) => {
       if (provider === "openai") {
@@ -297,6 +297,7 @@ describe("modelsStatusCommand auth overview", () => {
       provider: string;
       profiles: { labels: string[] };
       env?: { value: string; source: string };
+      effective?: { detail?: string };
     }>;
     const anthropic = providers.find((p) => p.provider === "anthropic");
     expect(anthropic).toBeTruthy();
@@ -325,6 +326,9 @@ describe("modelsStatusCommand auth overview", () => {
         }),
       ]),
     );
+    expect(providers.find((p) => p.provider === "openai-codex")?.effective?.detail).toBe(
+      "/tmp/openclaw-agent/auth-profiles.json",
+    );
 
     expect(
       (payload.auth.providersWithOAuth as string[]).some((e) => e.startsWith("anthropic")),
@@ -350,6 +354,13 @@ describe("modelsStatusCommand auth overview", () => {
         expect(payload.agentDir).toBe("/tmp/openclaw-agent-custom");
         expect(payload.defaultModel).toBe("openai/gpt-4");
         expect(payload.fallbacks).toEqual(["openai/gpt-3.5"]);
+        const providers = payload.auth.providers as Array<{
+          provider: string;
+          effective: { detail: string };
+        }>;
+        expect(providers.find((p) => p.provider === "openai-codex")?.effective.detail).toBe(
+          "/tmp/openclaw-agent-custom/auth-profiles.json",
+        );
         expect(payload.modelConfig).toEqual({
           defaultSource: "agent",
           fallbacksSource: "agent",

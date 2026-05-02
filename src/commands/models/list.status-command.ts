@@ -151,6 +151,7 @@ export async function modelsStatusCommand(
 
   const store = ensureAuthProfileStore(agentDir);
   const modelsPath = path.join(agentDir, "models.json");
+  const authStorePath = resolveAuthStorePathForDisplay(agentDir);
 
   const providersFromStore = new Set(
     Object.values(store.profiles)
@@ -218,6 +219,7 @@ export async function modelsStatusCommand(
         cfg,
         store,
         modelsPath,
+        authStorePath,
         syntheticAuth: syntheticAuthByProvider.get(provider),
       }),
     )

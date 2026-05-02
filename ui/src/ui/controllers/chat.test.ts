@@ -691,6 +691,53 @@ describe("sendChatMessage", () => {
       ],
     });
   });
+
+  it("normalizes attachment mime type casing before classifying image uploads", async () => {
+    const request = vi.fn().mockResolvedValue({ ok: true });
+    const state = createState({
+      connected: true,
+      client: { request } as unknown as ChatState["client"],
+    });
+
+    const result = await sendChatMessage(state, "look at this", [
+      {
+        id: "att-1",
+        dataUrl: "data:IMAGE/PNG;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+        mimeType: " IMAGE/PNG ",
+        fileName: "photo.png",
+      },
+    ]);
+
+    expect(result).toBeTypeOf("string");
+    expect(request).toHaveBeenCalledWith("chat.send", {
+      sessionKey: "main",
+      message: "look at this",
+      deliver: false,
+      idempotencyKey: result,
+      attachments: [
+        {
+          type: "image",
+          mimeType: "image/png",
+          content: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+          fileName: "photo.png",
+        },
+      ],
+    });
+    expect(state.chatMessages.at(-1)).toMatchObject({
+      role: "user",
+      content: [
+        { type: "text", text: "look at this" },
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: "image/png",
+            data: "data:IMAGE/PNG;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+          },
+        },
+      ],
+    });
+  });
 });
 
 describe("abortChatRun", () => {

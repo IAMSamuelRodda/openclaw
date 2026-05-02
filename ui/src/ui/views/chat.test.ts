@@ -104,4 +104,29 @@ describe("chat view queue steering", () => {
 
     expect(container.querySelector(".chat-queue__steer")).toBeNull();
   });
+
+  it("normalizes attachment mime type casing for preview rendering", () => {
+    const container = document.createElement("div");
+    render(
+      renderChat(
+        createProps({
+          attachments: [
+            {
+              id: "att-1",
+              dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB",
+              mimeType: " IMAGE/PNG ",
+              fileName: "photo.png",
+            },
+          ],
+          onAttachmentsChange: vi.fn(),
+        }),
+      ),
+      container,
+    );
+
+    expect(
+      container.querySelector<HTMLImageElement>(".chat-attachment-thumb img")?.getAttribute("src"),
+    ).toBe("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB");
+    expect(container.querySelector(".chat-attachment-thumb--file")).toBeNull();
+  });
 });

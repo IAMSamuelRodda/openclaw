@@ -138,4 +138,29 @@ describe("resolveProviderAuthOverview", () => {
       }
     }
   });
+
+  it("uses the requested auth store path when provided", () => {
+    const overview = resolveProviderAuthOverview({
+      provider: "openai-codex",
+      cfg: {},
+      store: {
+        version: 1,
+        profiles: {
+          "openai-codex:samuel@arcforge.au": {
+            type: "oauth",
+            provider: "openai-codex",
+            access: "eyJhbGciOi-ACCESS",
+            refresh: "oai-refresh-1234567890",
+            expires: Date.now() + 60_000,
+            email: "samuel@arcforge.au",
+          },
+        },
+      } as never,
+      modelsPath: "/tmp/models.json",
+      authStorePath: "/tmp/gandalf/agent/auth-profiles.json",
+    });
+
+    expect(overview.effective.kind).toBe("profiles");
+    expect(overview.effective.detail).toBe("/tmp/gandalf/agent/auth-profiles.json");
+  });
 });

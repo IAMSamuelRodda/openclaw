@@ -2240,6 +2240,84 @@ describe("chat directive tag stripping for non-streaming final payloads", () => 
     ).toBe(false);
   });
 
+  it("routes octet-stream image attachments through the image sniff fallback", async () => {
+    createTranscriptFixture("openclaw-chat-send-octet-stream-image-");
+    mockState.finalText = "ok";
+    mockState.sessionEntry = {
+      modelProvider: "test-provider",
+      model: "vision-model",
+    };
+    mockState.modelCatalog = [
+      {
+        provider: "test-provider",
+        id: "vision-model",
+        name: "Vision model",
+        input: ["text", "image"],
+      },
+    ];
+    const respond = vi.fn();
+    const context = createChatContext();
+
+    await runNonStreamingChatSend({
+      context,
+      respond,
+      idempotencyKey: "idem-octet-stream-image",
+      message: "describe image",
+      requestParams: {
+        attachments: [
+          {
+            mimeType: "application/octet-stream",
+            fileName: "photo.png",
+            content:
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/woAAn8B9FD5fHAAAAAASUVORK5CYII=",
+          },
+        ],
+      },
+      expectBroadcast: false,
+    });
+
+    expect(mockState.lastDispatchImages).toHaveLength(1);
+    expect(mockState.lastDispatchImages?.[0]).toMatchObject({ mimeType: "image/png" });
+    expect(mockState.lastDispatchImageOrder).toEqual(["inline"]);
+    expect(mockState.savedMediaCalls).toEqual([
+      expect.objectContaining({ contentType: "image/png", subdir: "inbound" }),
+    ]);
+  });
+
+  it("skips oversized non-image attachments before persistence", async () => {
+    createTranscriptFixture("openclaw-chat-send-oversized-file-");
+    mockState.finalText = "ok";
+    const respond = vi.fn();
+    const context = createChatContext();
+
+    await runNonStreamingChatSend({
+      context,
+      respond,
+      idempotencyKey: "idem-oversized-file",
+      message: "review the file",
+      requestParams: {
+        attachments: [
+          {
+            type: "file",
+            mimeType: "application/pdf",
+            fileName: "huge.pdf",
+            content: Buffer.alloc(5_000_001, 0x61).toString("base64"),
+          },
+        ],
+      },
+      expectBroadcast: false,
+    });
+
+    const warnMock = context.logGateway.warn as unknown as ReturnType<typeof vi.fn>;
+
+    expect(mockState.savedMediaCalls).toEqual([]);
+    expect(mockState.lastDispatchCtx?.MediaPath).toBeUndefined();
+    expect(mockState.lastDispatchCtx?.MediaPaths).toBeUndefined();
+    expect(
+      warnMock.mock.calls.some(([message]) => String(message).includes("exceeds size limit")),
+    ).toBe(true);
+  });
+
   it("resolves attachment image support from the session agent model", async () => {
     createTranscriptFixture("openclaw-chat-send-agent-scoped-text-only-attachments-");
     mockState.finalText = "ok";

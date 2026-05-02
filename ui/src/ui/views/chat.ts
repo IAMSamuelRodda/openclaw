@@ -211,7 +211,7 @@ function handlePaste(e: ClipboardEvent, props: ChatProps) {
   const imageItems: DataTransferItem[] = [];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
-    if (item.type.startsWith("image/")) {
+    if (isImageMimeType(item.type)) {
       imageItems.push(item);
     }
   }
@@ -303,7 +303,7 @@ function handleDrop(e: DragEvent, props: ChatProps) {
 }
 
 function isImageMimeType(mimeType: string): boolean {
-  return mimeType.startsWith("image/");
+  return mimeType.trim().toLowerCase().startsWith("image/");
 }
 
 function renderAttachmentPreview(props: ChatProps): TemplateResult | typeof nothing {

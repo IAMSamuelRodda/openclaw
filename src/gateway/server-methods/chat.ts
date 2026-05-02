@@ -16,12 +16,14 @@ import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { normalizeReplyPayloadsForDelivery } from "../../infra/outbound/payloads.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { logLargePayload } from "../../logging/diagnostic-payload.js";
+import { canonicalizeBase64, estimateBase64DecodedBytes } from "../../media/base64.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
 } from "../../media/local-roots.js";
 import { isAudioFileName } from "../../media/mime.js";
 import type { PromptImageOrderEntry } from "../../media/prompt-image-order.js";
+import { sniffMimeFromBase64 } from "../../media/sniff-mime-from-base64.js";
 import { type SavedMedia, saveMediaBuffer } from "../../media/store.js";
 import { createChannelReplyPipeline } from "../../plugin-sdk/channel-reply-pipeline.js";
 import { isPluginOwnedSessionBindingRecord } from "../../plugins/conversation-binding.js";
@@ -744,10 +746,58 @@ function isImageChatAttachmentMimeType(mimeType: string | null | undefined): boo
   return typeof mimeType === "string" && mimeType.trim().toLowerCase().startsWith("image/");
 }
 
+function isAmbiguousChatAttachmentMimeType(mimeType: string | null | undefined): boolean {
+  if (typeof mimeType !== "string") {
+    return true;
+  }
+  const normalized = mimeType.trim().toLowerCase();
+  return normalized.length === 0 || normalized === "application/octet-stream";
+}
+
 function stripChatAttachmentDataUrlPrefix(content: string): string {
   const trimmed = content.trim();
   const match = /^data:[^;]+;base64,(.*)$/.exec(trimmed);
   return match ? match[1] : trimmed;
+}
+
+function validateChatAttachmentBase64(params: {
+  content: string;
+  label: string;
+  maxBytes: number;
+}): string {
+  const decodedBytes = estimateBase64DecodedBytes(params.content);
+  if (decodedBytes <= 0) {
+    throw new Error(`attachment ${params.label}: content is empty`);
+  }
+  if (decodedBytes > params.maxBytes) {
+    throw new Error(
+      `attachment ${params.label}: exceeds size limit (${decodedBytes} > ${params.maxBytes} bytes)`,
+    );
+  }
+  const canonicalBase64 = canonicalizeBase64(params.content);
+  if (!canonicalBase64) {
+    throw new Error(`attachment ${params.label}: invalid base64 content`);
+  }
+  return canonicalBase64;
+}
+
+async function shouldRouteChatAttachmentThroughImagePath(attachment: {
+  content?: unknown;
+  mimeType?: string;
+}): Promise<boolean> {
+  if (isImageChatAttachmentMimeType(attachment.mimeType)) {
+    return true;
+  }
+  if (
+    !isAmbiguousChatAttachmentMimeType(attachment.mimeType) ||
+    typeof attachment.content !== "string"
+  ) {
+    return false;
+  }
+  const sniffedMime = await sniffMimeFromBase64(
+    stripChatAttachmentDataUrlPrefix(attachment.content),
+  );
+  return isImageChatAttachmentMimeType(sniffedMime);
 }
 
 async function persistChatSendNonImageAttachments(params: {
@@ -770,10 +820,16 @@ async function persistChatSendNonImageAttachments(params: {
     if (isImageChatAttachmentMimeType(mimeType)) {
       continue;
     }
+    const label = att.fileName ?? att.type ?? "attachment";
     try {
+      const base64Content = validateChatAttachmentBase64({
+        content: stripChatAttachmentDataUrlPrefix(att.content),
+        label,
+        maxBytes: CHAT_SEND_ATTACHMENT_MAX_BYTES,
+      });
       saved.push(
         await saveMediaBuffer(
-          Buffer.from(stripChatAttachmentDataUrlPrefix(att.content), "base64"),
+          Buffer.from(base64Content, "base64"),
           mimeType,
           "inbound",
           CHAT_SEND_ATTACHMENT_MAX_BYTES,
@@ -781,7 +837,6 @@ async function persistChatSendNonImageAttachments(params: {
         ),
       );
     } catch (err) {
-      const label = att.fileName ?? att.type ?? "attachment";
       params.logGateway.warn(
         `chat.send: failed to persist inbound attachment ${label} (${mimeType}): ${formatForLog(err)}`,
       );
@@ -2253,12 +2308,18 @@ export const chatHandlers: GatewayRequestHandlers = {
     const explicitOriginTargetsPlugin = explicitOriginTargetsPluginBinding(
       explicitOriginResult.value,
     );
-    const imageCandidateAttachments = normalizedAttachments.filter((attachment) =>
-      isImageChatAttachmentMimeType(attachment.mimeType),
+    const imageAttachmentFlags = await Promise.all(
+      normalizedAttachments.map((attachment) =>
+        shouldRouteChatAttachmentThroughImagePath(attachment),
+      ),
     );
-    const hasNonImageAttachments = normalizedAttachments.some(
-      (attachment) => !isImageChatAttachmentMimeType(attachment.mimeType),
+    const imageCandidateAttachments = normalizedAttachments.filter(
+      (_attachment, index) => imageAttachmentFlags[index],
     );
+    const nonImageAttachments = normalizedAttachments.filter(
+      (_attachment, index) => !imageAttachmentFlags[index],
+    );
+    const hasNonImageAttachments = nonImageAttachments.length > 0;
     if (imageCandidateAttachments.length > 0) {
       const modelRef = resolveSessionModelRef(cfg, entry, agentId);
       const supportsSessionModelImages = await resolveGatewayModelSupportsImages({
@@ -2324,7 +2385,7 @@ export const chatHandlers: GatewayRequestHandlers = {
       });
       const persistedNonImageAttachmentsPromise = hasNonImageAttachments
         ? persistChatSendNonImageAttachments({
-            attachments: normalizedAttachments,
+            attachments: nonImageAttachments,
             client,
             logGateway: context.logGateway,
           })
@@ -2366,9 +2427,10 @@ export const chatHandlers: GatewayRequestHandlers = {
       // Only BodyForAgent gets the timestamp — Body stays raw for UI display.
       // See: https://github.com/moltbot/moltbot/issues/3658
       const stampedMessage = injectTimestamp(messageForAgent, timestampOptsFromConfig(cfg));
-      const chatContextMediaFields = explicitOriginTargetsPlugin || hasNonImageAttachments
-        ? resolveChatSendTranscriptMediaFields(await persistedTranscriptMediaPromise)
-        : {};
+      const chatContextMediaFields =
+        explicitOriginTargetsPlugin || hasNonImageAttachments
+          ? resolveChatSendTranscriptMediaFields(await persistedTranscriptMediaPromise)
+          : {};
 
       const ctx: MsgContext = {
         Body: messageForAgent,
