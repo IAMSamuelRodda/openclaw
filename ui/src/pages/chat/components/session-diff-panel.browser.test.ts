@@ -1,9 +1,10 @@
+import { createComponent } from "solid-js";
 import "../../../styles.css";
 import "../../../styles/chat.ts";
 import { afterEach, describe, expect, it } from "vitest";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { waitForSolid } from "../../../test-helpers/solid-settle.ts";
-import "./session-diff-panel.ts";
+import { SessionDiffPanel } from "./session-diff-panel.ts";
 
 const browserMode = "__vitest_browser__" in globalThis;
 const branch = "openclaw/investigating-why-a-pr-was-not-merged";
@@ -15,8 +16,14 @@ describe.runIf(browserMode)("Review header layout", () => {
   it("uses available width before truncating and preserves actions when narrowed", async () => {
     const { page } = await import("vitest/browser");
     await page.viewport(1200, 800);
-    const panel = document.createElement("openclaw-session-diff");
-    mountSolid(() => panel);
+    let panel!: HTMLElementTagNameMap["openclaw-session-diff"];
+    mountSolid(() =>
+      createComponent(SessionDiffPanel, {
+        ref: (element) => {
+          panel = element;
+        },
+      }),
+    );
     panel.style.cssText = "display:block;width:1100px;padding:8px";
     panel.loader = async () => ({
       sessionKey: "main",

@@ -1,12 +1,12 @@
 /* @vitest-environment jsdom */
-import { createEffect, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApplicationContext } from "../../../app/context.ts";
 import { mountSolid } from "../../../test-helpers/mount-solid.ts";
 import { createSolidApplicationContextProvider } from "../../../test-helpers/solid-application-context.tsx";
 import { waitForSolid } from "../../../test-helpers/solid-settle.ts";
 import { ChatHtmlPreview } from "./chat-html-preview-element.tsx";
-import "./chat-svg-attachment.tsx";
+import { ChatSvgAttachment } from "./chat-svg-attachment.tsx";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -59,14 +59,7 @@ describe("Solid preview consumers", () => {
       .mockReturnValueOnce("blob:next-preview");
     const revoke = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const [src, setSrc] = createSignal(`${window.location.origin}/preview.svg`);
-    const view = mountSolid(() => {
-      const attachment = document.createElement("openclaw-chat-svg-attachment");
-      attachment.label = "preview.svg";
-      createEffect(src, (value) => {
-        attachment.src = value;
-      });
-      return attachment;
-    });
+    const view = mountSolid(() => <ChatSvgAttachment src={src()} label="preview.svg" />);
     await waitForSolid(() =>
       expect(view.container.querySelector("img")?.getAttribute("src")).toBe("blob:solid-preview"),
     );
@@ -77,7 +70,6 @@ describe("Solid preview consumers", () => {
     );
     expect(revoke).toHaveBeenCalledWith("blob:solid-preview");
     view.unmount();
-    await Promise.resolve();
     expect(revoke).toHaveBeenCalledWith("blob:next-preview");
   });
 });

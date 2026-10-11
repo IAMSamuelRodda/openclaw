@@ -428,15 +428,13 @@ function ChatClawHubCardContent(props: Props, host: SolidBridgeElement<Props>) {
   );
 }
 
-defineSolidBridge<Props>("openclaw-chat-clawhub-card", ChatClawHubCardContent, {
-  properties: {
-    recommendation: { default: undefined, attribute: false },
-    agentId: { default: undefined, attribute: false },
+export const ChatClawHubCard = defineSolidBridge<Props>(
+  "openclaw-chat-clawhub-card",
+  ChatClawHubCardContent,
+  {
+    properties: {
+      recommendation: { default: undefined, attribute: false },
+      agentId: { default: undefined, attribute: false },
+    },
   },
-});
-
-declare global {
-  interface HTMLElementTagNameMap {
-    "openclaw-chat-clawhub-card": SolidBridgeElement<Props>;
-  }
-}
+);

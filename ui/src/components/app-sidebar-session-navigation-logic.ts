@@ -22,7 +22,6 @@ import {
   sessionMatchesVisibleSessionScope,
 } from "../lib/sessions/index.ts";
 import {
-  areUiSessionKeysEquivalent,
   buildAgentMainSessionKey,
   isAcpSessionKey,
   isSubagentSessionKey,
@@ -511,51 +510,6 @@ export function resolveSidebarMainSessionKey(input: {
     agentId: input.agentId,
     mainKey: resolveUiConfiguredMainKey(host),
   });
-}
-
-type SidebarSessionResultHost = {
-  readonly sidebarAgentsMode: "chip" | "roster";
-  readonly rosterSessionSource: { result: SessionsListResult | null } | null;
-  readonly sessionData: {
-    sessionsAgentId: string | null;
-    sessionsResult: SessionsListResult | null;
-    sessionResultsByAgent: Readonly<Record<string, SessionsListResult>>;
-    activeSessionLineageRoot: GatewaySessionRow | null;
-  };
-  expandedAgentId(): string;
-  selectedAgentMainSessionKey(agentId: string): string;
-};
-
-export function resolveSidebarAgentSessionResult(
-  host: SidebarSessionResultHost,
-): SessionsListResult | null {
-  if (host.sidebarAgentsMode === "roster" && host.rosterSessionSource) {
-    return host.rosterSessionSource.result;
-  }
-  const selected = host.expandedAgentId();
-  return selected === normalizeAgentId(host.sessionData.sessionsAgentId ?? "")
-    ? host.sessionData.sessionsResult
-    : (host.sessionData.sessionResultsByAgent[selected] ?? null);
-}
-
-export function resolveSidebarMainSessionRow(
-  host: SidebarSessionResultHost,
-  agentId?: string,
-): GatewaySessionRow | null {
-  const normalized = normalizeAgentId(agentId ?? host.expandedAgentId());
-  const mainKey = host.selectedAgentMainSessionKey(normalized);
-  const grouped = host.sidebarAgentsMode === "roster" ? host.rosterSessionSource : null;
-  const rows =
-    grouped?.result?.sessions ??
-    (normalized === normalizeAgentId(host.sessionData.sessionsAgentId ?? "")
-      ? (host.sessionData.sessionsResult?.sessions ?? [])
-      : (host.sessionData.sessionResultsByAgent[normalized]?.sessions ?? []));
-  const lineage = host.sessionData.activeSessionLineageRoot;
-  return (
-    (lineage ? [...rows, lineage] : rows).find((row) =>
-      areUiSessionKeysEquivalent(row.key, mainKey),
-    ) ?? null
-  );
 }
 
 /** Search the projected tree without flattening folded descendant state. */

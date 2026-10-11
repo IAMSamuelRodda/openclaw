@@ -12,9 +12,8 @@ import {
   createGatewayHarness,
   flushSync,
 } from "../../../lib/session-pull-requests.test-support.ts";
+import type { ChatCiAutomationElement } from "./chat-ci-automation-control.ts";
 import { renderChatPullRequests } from "./chat-pull-requests.ts";
-
-type ChatCiAutomationElement = HTMLElementTagNameMap["openclaw-chat-ci-automation"];
 
 const sessionKey = "agent:main:dashboard:ci-test";
 const pr = {

@@ -1,9 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { SqliteDatabaseAdmissionKey } from "../infra/sqlite-database-admission.js";
 import type { SqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
-import { readOpenClawAgentDatabaseIdentity } from "./openclaw-agent-db-identity.js";
 
 export type OpenClawAgentDatabaseValidation = {
   agentId: string;
@@ -107,26 +104,3 @@ export const agentDatabaseValidationKey: SqliteDatabaseAdmissionKey<OpenClawAgen
       };
     },
   };
-
-export function createValidationReceipt(
-  database: { db: DatabaseSync; path: string; agentId: string },
-  canonicalReady: boolean,
-): OpenClawAgentDatabaseValidation {
-  const { identity, birthtime } = readOpenClawAgentDatabaseIdentity(database);
-  if (typeof identity !== "string" || birthtime === undefined) {
-    throw new Error("Only persistent agent databases retain integrity validation");
-  }
-  const validation = {
-    agentId: database.agentId,
-    identity,
-    birthtime,
-    receiptId: randomUUID(),
-    valid: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
-    canonicalReady: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
-  };
-  if (canonicalReady) {
-    Atomics.store(new Int32Array(validation.canonicalReady), 0, 1);
-  }
-  Atomics.store(new Int32Array(validation.valid), 0, 1);
-  return validation;
-}

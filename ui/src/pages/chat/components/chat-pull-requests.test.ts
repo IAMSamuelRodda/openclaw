@@ -9,6 +9,7 @@ import type {
 import { createDeferred } from "../../../../../test/helpers/promise.js";
 import { GatewayBrowserClient } from "../../../api/gateway.ts";
 import type { ApplicationGateway, ApplicationGatewaySnapshot } from "../../../app/gateway.ts";
+import type { ChatCiDetailsElement } from "./chat-ci-details.ts";
 import { publication, sessionBranch } from "./chat-pull-requests.test-support.ts";
 import {
   chatBranchId,
@@ -17,8 +18,6 @@ import {
   listDismissedChatPullRequests,
   renderChatPullRequests,
 } from "./chat-pull-requests.ts";
-
-type ChatCiDetailsElement = HTMLElementTagNameMap["openclaw-chat-ci-details"];
 
 function pullRequest(
   overrides: Partial<ControlUiSessionPullRequest> = {},

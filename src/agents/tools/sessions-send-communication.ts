@@ -1,6 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { readAcpSessionMetaForEntry } from "../../acp/runtime/session-meta-readonly.js";
 import { createRuntimeConfigReader } from "../../config/runtime-snapshot.js";
 import {
   captureIncognitoSessionSource,
@@ -22,20 +21,14 @@ import {
   type CommunicationEndpoint,
   type CommunicationApproval,
 } from "../../sessions/communication-admission.js";
-import {
-  annotateInterSessionPromptText,
-  type InputProvenance,
-} from "../../sessions/input-provenance.js";
+import type { InputProvenance } from "../../sessions/input-provenance.js";
 import {
   sessionChanges,
   sessionChangeScopeAffectsStoredRows,
 } from "../../sessions/session-row-changes.js";
-import { formatSystemTurnPrompt } from "../../sessions/system-turn-prompt.js";
 import { registerActiveEmbeddedRunHumanInputWait } from "../embedded-agent-runner/run-state.js";
-import { RESTART_RECOVERY_INTERRUPTION_NOTE } from "../restart-recovery-prompt.js";
 import { resolveSandboxRuntimeStatus } from "../sandbox/runtime-status.js";
 import { getLatestLiveSubagentRunByChildSessionKey } from "../subagents/registry/subagent-registry-read.js";
-import { isSubagentSessionFromEntry } from "../subagents/spawn/subagent-depth-policy.js";
 import {
   captureGatewayToolCallerAssertion,
   getGatewayToolCallerIdentity,
@@ -51,30 +44,6 @@ import {
   resolveSandboxedSessionToolContext,
   resolveSessionToolAccess,
 } from "./sessions-access.js";
-
-export function prepareSessionsSendDispatchMessage(params: {
-  config: OpenClawConfig;
-  target: CommunicationEndpoint;
-  message: string;
-  inputProvenance: InputProvenance;
-}): string {
-  const dispatchMessage = annotateInterSessionPromptText(params.message, params.inputProvenance);
-  const { target } = params;
-  const acpMeta = readAcpSessionMetaForEntry({
-    sessionKey: target.sessionKey,
-    agentId: target.agentId,
-    cfg: params.config,
-    entry: target.entry,
-  });
-  if (
-    !acpMeta &&
-    target.entry?.status === "interrupted" &&
-    isSubagentSessionFromEntry(target.sessionKey, target.entry, acpMeta)
-  ) {
-    return `${formatSystemTurnPrompt(RESTART_RECOVERY_INTERRUPTION_NOTE)}\n\n${dispatchMessage}`;
-  }
-  return dispatchMessage;
-}
 
 /** One prepared peer operation; identity bounds never choose its completion route. */
 export async function prepareSessionsSendCommunication(params: {

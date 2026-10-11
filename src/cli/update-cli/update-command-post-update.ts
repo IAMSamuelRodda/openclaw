@@ -22,7 +22,6 @@ import { appendPluginUpdateWarnings } from "./update-command-plugins-internals.j
 import { runPostActivationInspections } from "./update-command-post-activation-inspections.js";
 import {
   completePostUpdateMaintenance,
-  compensatePostUpdateWindowsAutoStartFailure,
   parkPostUpdateService,
   preparePostUpdateService,
   resumePostUpdateWindowsAutoStart,
@@ -294,12 +293,30 @@ async function finishSettledUpdate(
     }
     if (restoreFailure) {
       rolledBack = false;
-      restoreFailure = await compensatePostUpdateWindowsAutoStartFailure({
-        root: params.root,
-        result: finalResult,
-        previousResult: result,
-        failure: restoreFailure,
-        readStopped: currentServiceStop,
+      try {
+        await currentServiceStop()?.windowsTaskAutoStartRecovery?.complete(false);
+      } catch (cause) {
+        restoreFailure = {
+          cause: new AggregateError(
+            [restoreFailure.cause, cause],
+            `Windows task restoration and compensation failed: ${formatErrorMessage(restoreFailure.cause)}; ${formatErrorMessage(cause)}`,
+          ),
+        };
+      }
+      defaultRuntime.error(
+        `Failed to restore Windows Scheduled Task autostart: ${String(restoreFailure.cause)}`,
+      );
+      finalResult.status = "error";
+      finalResult.reason =
+        result.status === "error" ? result.reason : "windows-task-autostart-restore-failed";
+      finalResult.recovery = { serviceRestartSafe: false, reason: "runtime-verification-failed" };
+      finalResult.steps = finalResult.steps.concat({
+        name: "windows-task-autostart-recovery",
+        command: "openclaw update",
+        cwd: finalResult.root ?? params.root,
+        durationMs: 0,
+        exitCode: 1,
+        stderrTail: formatErrorMessage(restoreFailure.cause),
       });
     }
     const completedBeforeCleanup = deferredTerminal

@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import { createComponent } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionsDiffResult } from "../../../../../packages/gateway-protocol/src/index.js";
 import { createDeferred as deferred } from "../../../../../test/helpers/promise.js";
@@ -9,7 +10,7 @@ import {
   setNativeGatewayTestState,
 } from "../../../test-helpers/native-gateways.ts";
 import { flush, waitForSolid } from "../../../test-helpers/solid-settle.ts";
-import "./session-diff-panel.ts";
+import { SessionDiffPanel } from "./session-diff-panel.ts";
 import type {
   SessionDiffFileTextLoader,
   SessionDiffLoader,
@@ -27,8 +28,14 @@ type SessionDiffElement = HTMLElement & {
 };
 
 function mountPanel() {
-  const panel = document.createElement("openclaw-session-diff");
-  mountSolid(() => panel);
+  let panel!: SessionDiffElement;
+  mountSolid(() =>
+    createComponent(SessionDiffPanel, {
+      ref: (element) => {
+        panel = element;
+      },
+    }),
+  );
   return panel;
 }
 
@@ -204,7 +211,6 @@ describe("SessionDiffPanel", () => {
       setNativeGatewayTestState(null);
       localStorage.setItem("openclaw.control.sessionDiff.v1", JSON.stringify({ split }));
       const panel = mountPanel();
-      await panel.updateComplete;
       localStorage.removeItem("openclaw.control.sessionDiff.v1");
       const patch = [
         "--- a/example.ts",
@@ -254,7 +260,6 @@ describe("SessionDiffPanel", () => {
     setNativeGatewayTestState(null);
     localStorage.setItem("openclaw.control.sessionDiff.v1", JSON.stringify({ split }));
     const panel = mountPanel();
-    await panel.updateComplete;
     localStorage.removeItem("openclaw.control.sessionDiff.v1");
     const before = '<section data-mode="before">Hello</section>';
     const after = 'const value = "after";';

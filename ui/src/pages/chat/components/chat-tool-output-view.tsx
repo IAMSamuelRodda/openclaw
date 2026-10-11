@@ -178,7 +178,7 @@ function ToolOutput(props: Props) {
   );
 }
 
-defineSolidBridge<Props>("openclaw-chat-tool-output", ToolOutput, {
+export const ChatToolOutput = defineSolidBridge<Props>("openclaw-chat-tool-output", ToolOutput, {
   properties: {
     content: { default: null, attribute: false },
     loadFullMessage: { default: null, attribute: false },

@@ -678,16 +678,20 @@ function SessionDiffContent(props: SessionDiffProps) {
   );
 }
 
-defineSolidBridge<SessionDiffProps>("openclaw-session-diff", SessionDiffContent, {
-  properties: {
-    owner: { default: null, attribute: false },
-    execNode: { default: null, attribute: false },
-    loader: { default: null, attribute: false },
-    loadFileText: { default: null, attribute: false },
-    openFile: { default: null, attribute: false },
-    revealFile: { default: null, attribute: false },
+export const SessionDiffPanel = defineSolidBridge<SessionDiffProps>(
+  "openclaw-session-diff",
+  SessionDiffContent,
+  {
+    properties: {
+      owner: { default: null, attribute: false },
+      execNode: { default: null, attribute: false },
+      loader: { default: null, attribute: false },
+      loadFileText: { default: null, attribute: false },
+      openFile: { default: null, attribute: false },
+      revealFile: { default: null, attribute: false },
+    },
   },
-});
+);
 declare global {
   interface HTMLElementTagNameMap {
     "openclaw-session-diff": SolidBridgeElement<SessionDiffProps>;

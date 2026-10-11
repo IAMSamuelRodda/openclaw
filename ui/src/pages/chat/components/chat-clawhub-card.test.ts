@@ -1,18 +1,20 @@
 /* @vitest-environment jsdom */
 
+import { createComponent } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClawHubRecommendation } from "../../../../../src/shared/clawhub-recommendations.js";
 import { createDeferred as deferred } from "../../../../../test/helpers/promise.js";
 import { i18n } from "../../../i18n/index.ts";
 import { normalizeMessage } from "../../../lib/chat/message-normalizer.ts";
-import { createApplicationContextProvider } from "../../../test-helpers/application-context.ts";
+import { mountSolid } from "../../../test-helpers/mount-solid.ts";
+import { createSolidApplicationContextProvider } from "../../../test-helpers/solid-application-context.tsx";
 import { waitForSolid } from "../../../test-helpers/solid-settle.ts";
 import {
   createClient,
   createContext,
   createGateway,
 } from "../../plugins/plugins-page.test-support.ts";
-import "./chat-clawhub-card.ts";
+import { ChatClawHubCard } from "./chat-clawhub-card.tsx";
 
 const iconFetch = vi.hoisted(() => ({ catalog: vi.fn(), plugin: vi.fn() }));
 vi.mock("../../plugins/icon-loader.ts", () => ({
@@ -47,13 +49,14 @@ function mount(
   const { client, request } = createClient(handler);
   const harness = createGateway(client);
   const context = createContext(harness.gateway);
-  const provider = createApplicationContextProvider(context);
-  const card = document.createElement("openclaw-chat-clawhub-card");
-  card.recommendation = initialRecommendation;
-  card.agentId = "main";
-  provider.append(card);
-  document.body.append(provider);
-  return { card, context, request, harness, client, unmount: () => provider.remove() };
+  const provider = createSolidApplicationContextProvider(context);
+  const mounted = mountSolid(
+    () =>
+      createComponent(ChatClawHubCard, { recommendation: initialRecommendation, agentId: "main" }),
+    { wrapper: provider.wrapper },
+  );
+  const card = mounted.container.querySelector<HTMLElement>("openclaw-chat-clawhub-card")!;
+  return { card, context, request, harness, client, unmount: mounted.unmount };
 }
 
 describe("ClawHub chat recommendations", () => {

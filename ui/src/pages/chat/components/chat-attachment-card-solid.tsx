@@ -23,7 +23,7 @@ export function CompactAttachmentCard(props: AttachmentCardHeaderOptions) {
   );
 }
 
-function AttachmentCardHeader(props: AttachmentCardHeaderOptions) {
+export function AttachmentCardHeader(props: AttachmentCardHeaderOptions) {
   const compactPreview = () => props.visualMode === "preview-with-favicon";
   const formattedSize = () =>
     props.sizeBytes === undefined ? undefined : formatBytes(props.sizeBytes);

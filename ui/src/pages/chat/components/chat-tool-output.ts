@@ -1,1 +1,1 @@
-import "./chat-tool-output-view.tsx";
+export { ChatToolOutput } from "./chat-tool-output-view.tsx";

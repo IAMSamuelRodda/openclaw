@@ -22,12 +22,15 @@ import {
   normalizeAgentId,
   normalizeAgentIdStrict,
 } from "../../routing/session-key.js";
+import { annotateInterSessionPromptText } from "../../sessions/input-provenance.js";
 import { isCronRunSessionKey, parseAgentSessionKey } from "../../sessions/session-key-utils.js";
+import { formatSystemTurnPrompt } from "../../sessions/system-turn-prompt.js";
 import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { bindRequesterYieldCronAuthority } from "../cron-creator-authority-context.js";
 import { resolveNestedAgentLaneForSession } from "../lanes.js";
+import { RESTART_RECOVERY_INTERRUPTION_NOTE } from "../restart-recovery-prompt.js";
 import { isSubagentSessionFromEntry } from "../subagents/spawn/subagent-depth-policy.js";
 import {
   describeSessionsSendTool,
@@ -56,10 +59,7 @@ import {
   PlacedSessionsSendSchema,
   PLACED_SESSIONS_SEND_DESCRIPTION,
 } from "./sessions-placement-tool-contract.js";
-import {
-  prepareSessionsSendCommunication,
-  prepareSessionsSendDispatchMessage,
-} from "./sessions-send-communication.js";
+import { prepareSessionsSendCommunication } from "./sessions-send-communication.js";
 import { dispatchSessionsSendFollowup } from "./sessions-send-followup.js";
 import { sendFailure } from "./sessions-send-helpers.js";
 import {
@@ -474,24 +474,36 @@ export function createSessionsSendTool(opts?: SessionsSendToolOptions): AnyAgent
             sourceTool: "sessions_send",
             ...(requesterIsSubagent ? { sourceRole: "subagent" as const } : {}),
           };
-          const targetEndpoint = () => ({
-            agentId: targetSession.agentId,
+          let dispatchMessage = annotateInterSessionPromptText(message, inputProvenance);
+          const initialAcpMeta = readAcpSessionMetaForEntry({
             sessionKey: targetSession.canonicalKey,
-            storePath: targetSession.readSource?.path ?? targetSession.storePath,
+            agentId: targetSession.agentId,
+            cfg,
             entry: targetSessionEntry,
           });
-          const dispatchMessage = prepareSessionsSendDispatchMessage({
-            config: cfg,
-            target: targetEndpoint(),
-            message,
-            inputProvenance,
-          });
+          if (
+            !initialAcpMeta &&
+            targetSessionEntry?.status === "interrupted" &&
+            isSubagentSessionFromEntry(
+              targetSession.canonicalKey,
+              targetSessionEntry,
+              initialAcpMeta,
+            )
+          ) {
+            dispatchMessage = `${formatSystemTurnPrompt(RESTART_RECOVERY_INTERRUPTION_NOTE)}\n\n${dispatchMessage}`;
+          }
           const source = {
             agentId: requesterSession.agentId,
             sessionKey: requesterSession.canonicalKey,
             storePath: requesterSession.readSource?.path ?? requesterSession.storePath,
             entry: requesterSessionEntry,
           };
+          const targetEndpoint = () => ({
+            agentId: targetSession.agentId,
+            sessionKey: targetSession.canonicalKey,
+            storePath: targetSession.readSource?.path ?? targetSession.storePath,
+            entry: targetSessionEntry,
+          });
           // Main aliases bypass the explicit-key missing-session probe.
           const canCreateTarget =
             visibleSession.missing ||

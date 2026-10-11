@@ -466,37 +466,9 @@ it.for([
         if (outcome === "handoff") {
           // Old startup blocks in full-file preflight before claiming its writable lease.
           expect(fs.existsSync(enteredPath)).toBe(false);
-          const marker = pause!.preparationEnteredPaths[0]!;
-          const entered = createDeferredCore();
-          const watcher = fs.watch(root, () => {
-            if (fs.existsSync(marker)) {
-              entered.resolve();
-            }
-          });
-          watcher.once("error", entered.reject);
-          try {
-            // Register before checking so a marker created during setup cannot be missed.
-            if (fs.existsSync(marker)) {
-              entered.resolve();
-            }
-            if (!inspectionSettled) {
-              throw new Error("Startup admission did not retain its preparation");
-            }
-            await withinTest(
-              Promise.race([
-                entered.promise,
-                inspectionSettled.then(() => {
-                  expect(
-                    fs.existsSync(marker),
-                    "Startup inspection settled before reaching its preparation barrier",
-                  ).toBe(true);
-                }),
-              ]),
-              signal,
-            );
-          } finally {
-            watcher.close();
-          }
+          await vi.waitFor(() =>
+            expect(fs.existsSync(pause!.preparationEnteredPaths[0]!)).toBe(true),
+          );
         } else {
           await vi.waitFor(() => expect(fs.existsSync(enteredPath)).toBe(true));
         }

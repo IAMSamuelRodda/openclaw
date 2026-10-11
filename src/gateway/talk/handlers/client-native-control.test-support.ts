@@ -439,19 +439,6 @@ export async function withParkedNativeTask(
   const runAbortController = new AbortController();
   let activeRun: RunEmbeddedAgentParams | undefined;
   let phase = "waiting for delegation";
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  const timeoutMs = 1000;
-  const startRegistrationDeadline = () => {
-    // Admission, tool authority, and stream loading precede registration readiness.
-    phase = "publishing embedded registration";
-    deadline = setTimeout(() => {
-      failed.reject(
-        new Error(
-          `registration readiness not observed within ${timeoutMs} ms; last phase: ${phase}`,
-        ),
-      );
-    }, timeoutMs);
-  };
   let backendAborted = false;
   const abortOwned = vi.fn(() => {
     backendAborted = true;
@@ -497,7 +484,7 @@ export async function withParkedNativeTask(
               if (!model) {
                 throw new Error("Expected an embedded test model");
               }
-              startRegistrationDeadline();
+              phase = "publishing embedded registration";
               stream = prepareEmbeddedAttemptStream({
                 attempt: {
                   ...prepared,
@@ -562,7 +549,7 @@ export async function withParkedNativeTask(
                   return await queueMessage(text, options);
                 },
               };
-              startRegistrationDeadline();
+              phase = "publishing embedded registration";
               embeddedRuns.setActiveEmbeddedRun(
                 params.sessionId,
                 handle,
@@ -614,13 +601,24 @@ export async function withParkedNativeTask(
     await nextEventLoopTurn();
   };
   const runInFixture = async (fixture: NativePluginFixture) => {
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     let stopObservingCompletion: (() => void) | undefined;
+    const timeoutMs = 1000;
     const prepare = embeddedRuns.prepareEmbeddedAgentRunCompletionClaim;
     const observeRegistration = vi
       .spyOn(embeddedRuns, "prepareEmbeddedAgentRunCompletionClaim")
       .mockImplementation((sessionId, runId) => {
         const claim = prepare(sessionId, runId);
-        if (sessionId === SESSION_ID) {
+        if (sessionId === SESSION_ID && deadline === undefined) {
+          // Workspace and session preparation precede the registration owner's lifetime.
+          phase = "waiting for embedded registration";
+          deadline = setTimeout(() => {
+            failed.reject(
+              new Error(
+                `registration readiness not observed within ${timeoutMs} ms; last phase: ${phase}`,
+              ),
+            );
+          }, timeoutMs);
           registered.resolve(claim.registered);
         }
         return claim;

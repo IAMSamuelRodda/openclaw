@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { registerNodeSqliteDisposeCallback } from "../infra/kysely-sync-cache-state.js";
@@ -31,14 +32,16 @@ import {
   assertCanonicalSessionValidationSchema,
 } from "./openclaw-agent-canonical-validation-schema.js";
 import { CANONICAL_SESSION_VALIDATION_SCHEMA_VERSION } from "./openclaw-agent-db-contract.js";
-import { findOpenClawAgentDatabaseIdentity } from "./openclaw-agent-db-identity.js";
+import {
+  findOpenClawAgentDatabaseIdentity,
+  readOpenClawAgentDatabaseIdentity,
+} from "./openclaw-agent-db-identity.js";
 import {
   matchesAgentDatabaseReadCandidatePath,
   type OpenClawAgentDatabaseReadCandidateResource,
 } from "./openclaw-agent-db-resources.js";
 import {
   agentDatabaseValidationKey,
-  createValidationReceipt,
   readTransferredAgentSchema,
   type OpenClawAgentDatabaseValidation,
 } from "./openclaw-agent-db-validation-facts.js";
@@ -621,6 +624,29 @@ function isOpenClawAgentCanonicalStoreEmpty(database: { db: DatabaseSync }): boo
     EXISTS(SELECT 1 FROM session_canonical_validation_pending) AS populated`)
       .get()?.populated === 0
   );
+}
+
+function createValidationReceipt(
+  database: ValidationDatabase,
+  canonicalReady: boolean,
+): OpenClawAgentDatabaseValidation {
+  const { identity, birthtime } = readOpenClawAgentDatabaseIdentity(database);
+  if (typeof identity !== "string" || birthtime === undefined) {
+    throw new Error("Only persistent agent databases retain integrity validation");
+  }
+  const validation = {
+    agentId: database.agentId,
+    identity,
+    birthtime,
+    receiptId: randomUUID(),
+    valid: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+    canonicalReady: new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+  };
+  if (canonicalReady) {
+    Atomics.store(new Int32Array(validation.canonicalReady), 0, 1);
+  }
+  Atomics.store(new Int32Array(validation.valid), 0, 1);
+  return validation;
 }
 
 export function setOpenClawAgentDatabaseValidation(
