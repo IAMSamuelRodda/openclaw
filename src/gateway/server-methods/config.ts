@@ -3,12 +3,10 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import {
   ErrorCodes,
   errorShape,
-  formatValidationErrors,
   validateConfigApplyParams,
   validateConfigGetParams,
   validateConfigPatchParams,
   validateConfigSchemaLookupParams,
-  validateConfigSchemaLookupResult,
   validateConfigSchemaParams,
   validateConfigSetParams,
 } from "../../../packages/gateway-protocol/src/index.js";
@@ -800,7 +798,7 @@ export const configHandlers: GatewayRequestHandlers = {
     }
     respond(true, loadSchemaWithPlugins(), undefined);
   },
-  "config.schema.lookup": ({ params, respond, context }) => {
+  "config.schema.lookup": ({ params, respond }) => {
     if (
       !assertValidParams(params, validateConfigSchemaLookupParams, "config.schema.lookup", respond)
     ) {
@@ -814,20 +812,6 @@ export const configHandlers: GatewayRequestHandlers = {
         false,
         undefined,
         errorShape(ErrorCodes.INVALID_REQUEST, "config schema path not found"),
-      );
-      return;
-    }
-    if (!validateConfigSchemaLookupResult(result)) {
-      const errors = validateConfigSchemaLookupResult.errors ?? [];
-      context.logGateway.warn(
-        `config.schema.lookup produced invalid payload for ${sanitizePathForLog(path)}: ${formatValidationErrors(errors)}`,
-      );
-      respond(
-        false,
-        undefined,
-        errorShape(ErrorCodes.UNAVAILABLE, "config.schema.lookup returned invalid payload", {
-          details: { errors },
-        }),
       );
       return;
     }
