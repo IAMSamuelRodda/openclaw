@@ -73,6 +73,8 @@ impl NativeBrowserBridgeState {
                     .permission("allow-window-chrome-request");
             #[cfg(not(target_os = "macos"))]
             let capability = capability.permission("allow-window-chrome-drag");
+            #[cfg(target_os = "linux")]
+            let capability = capability.permission("allow-clipboard-image");
             app.add_capability(capability)
                 .map_err(|error| format!("Could not enable the native browser: {error}"))?;
             state.granted_origins.insert(origin);
@@ -89,6 +91,8 @@ impl NativeBrowserBridgeState {
             initialization_script(&document),
             crate::window_chrome::initialization_script(Some(dashboard), true)
         );
+        #[cfg(target_os = "linux")]
+        let script = format!("{script}\n{}", include_str!("../../ui/clipboard-image.js"));
         state.document = Some(document);
         state.reset_pending = true;
         Ok(Some(script))
