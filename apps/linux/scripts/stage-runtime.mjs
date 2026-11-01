@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const destination = path.join(root, "apps/linux/src-tauri/target/desktop-runtime");
+const cloudflaredDestination = path.join(root, "apps/linux/src-tauri/target/cloudflared");
 
 export function resourceBytes(executable) {
   // linuxdeploy rewrites ELF resources even without executable permissions.
@@ -50,6 +51,16 @@ export function stageRuntime(triple) {
       fs.rmSync(path.join(work, "bun-manifest.json"));
     } else {
       fs.writeFileSync(path.join(work, "manifest.json"), "{}\n");
+    }
+    // Cloudflare Access browser sign-in helper; see cloudflare_access.rs.
+    fs.rmSync(cloudflaredDestination, { recursive: true, force: true });
+    fs.mkdirSync(cloudflaredDestination, { recursive: true });
+    if (target) {
+      execFileSync(
+        path.join(root, "scripts/stage-cloudflared-linux.sh"),
+        [target.arch === "arm64" ? "arm64" : "x86_64", cloudflaredDestination],
+        { cwd: root, stdio: "inherit" },
+      );
     }
     fs.rmSync(destination, { recursive: true, force: true });
     fs.renameSync(work, destination);

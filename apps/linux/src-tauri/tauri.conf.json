@@ -132,7 +132,8 @@
     ],
     "resources": {
       "target/installers/install-cli.sh": "install-cli.sh",
-      "target/desktop-runtime/": "desktop-runtime/"
+      "target/desktop-runtime/": "desktop-runtime/",
+      "target/cloudflared/": "cloudflared/"
     },
     "linux": {
       "appimage": {

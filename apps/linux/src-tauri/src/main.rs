@@ -3,6 +3,8 @@ mod bundled_runtime;
 mod chrome_setup;
 mod cli;
 #[cfg(target_os = "linux")]
+mod cloudflare_access;
+#[cfg(target_os = "linux")]
 mod desktop_bridge;
 mod desktop_node;
 mod desktop_node_process;
@@ -1166,6 +1168,15 @@ impl DesktopState {
             (None, remote_gateway::normalize_gateway_url(raw)?)
         };
         remote_gateway::resolve_remote_tls_fingerprint(&mut request, &gateway_url)?;
+        // A Gateway behind Cloudflare Access needs a browser sign-in before
+        // the WebSocket or the dashboard can reach it. Only a person's own
+        // Connect opens the browser; saved reconnects report expiry instead.
+        #[cfg(target_os = "linux")]
+        cloudflare_access::ensure_session(
+            app,
+            &gateway_url,
+            matches!(source, RemoteConnectionSource::Submitted),
+        )?;
         // Blank Settings fields retain configured credentials for this endpoint.
         // Runtime resolution must not turn that intent into a plaintext save.
         let submitted_request = request.clone();
@@ -1443,8 +1454,10 @@ impl DesktopState {
                     #[cfg(not(target_os = "linux"))]
                     return Err("The previous dashboard is unavailable.".to_string());
                 }
-                main_window(app)?
-                    .navigate(url)
+                let view = main_window(app)?;
+                #[cfg(target_os = "linux")]
+                cloudflare_access::prime_webview(&view, &url);
+                view.navigate(url)
                     .map_err(|_| "Could not return to the dashboard. Try again.".to_string())?;
             }
         }
@@ -1805,6 +1818,8 @@ impl DesktopState {
             .state::<gateway_windows::GatewayWindows>()
             .navigate_document(&view, url.clone())?
         {
+            #[cfg(target_os = "linux")]
+            cloudflare_access::prime_webview(&view, &url);
             view.navigate(url)
                 .map_err(|error| format!("Could not open dashboard: {error}"))?;
         }
