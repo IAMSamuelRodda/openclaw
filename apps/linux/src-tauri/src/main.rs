@@ -3,6 +3,8 @@ mod bundled_runtime;
 mod chrome_setup;
 mod cli;
 #[cfg(target_os = "linux")]
+mod clipboard_image;
+#[cfg(target_os = "linux")]
 mod cloudflare_access;
 #[cfg(target_os = "linux")]
 mod desktop_bridge;
@@ -3486,6 +3488,8 @@ fn main() {
         close_connection_settings,
         build_info,
         updater::check_for_updates,
+        #[cfg(target_os = "linux")]
+        clipboard_image::clipboard_image,
         discovery::connect_discovered_gateway,
         connect_remote_gateway,
         discovery::discover_gateways,

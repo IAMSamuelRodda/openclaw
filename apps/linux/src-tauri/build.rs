@@ -13,6 +13,7 @@ fn main() {
         "bootstrap",
         "build_info",
         "check_for_updates",
+        "clipboard_image",
         "close_connection_settings",
         "connect_discovered_gateway",
         "connect_remote_gateway",
