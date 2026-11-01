@@ -1165,6 +1165,16 @@ impl GatewayClient {
             .max_message_bytes(MAX_MESSAGE_BYTES)
             .max_frame_bytes(MAX_FRAME_BYTES)
             .max_in_flight(16);
+        #[cfg(target_os = "linux")]
+        let shared_config = match Url::parse(&config.ws_url)
+            .ok()
+            .and_then(|url| crate::cloudflare_access::session_for(&url))
+        {
+            Some(session) => shared_config
+                .header("Cf-Access-Token", session.token())
+                .map_err(RequestFailure::from_shared)?,
+            None => shared_config,
+        };
         // Native child WebViews use platform HTTP trust and cannot bind the optional
         // WebSocket leaf pin, so pinned Gateway connections remain capability-free.
         let inline_widgets_available = config

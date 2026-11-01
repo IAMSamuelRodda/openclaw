@@ -13,6 +13,7 @@ export { resourceBytes };
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const destination = path.join(root, "apps/linux/src-tauri/target/desktop-runtime");
+const cloudflaredDestination = path.join(root, "apps/linux/src-tauri/target/cloudflared");
 
 export function runtimeTarget(triple) {
   if (triple.endsWith("-unknown-freebsd")) {
@@ -171,6 +172,16 @@ export async function stageRuntime(triple, { runtimeOnly = false, flavor = runti
     // Native CI supplies its synthetic CLI next; real Tauri builds need the full package.
     if (flavor === "jit" && !runtimeOnly && target && JSON.parse(fs.readFileSync(path.join(work, "manifest.json"), "utf8")).files) {
       stagePackage(root, work, target);
+    }
+    // Cloudflare Access browser sign-in helper for Linux; see cloudflare_access.rs.
+    fs.rmSync(cloudflaredDestination, { recursive: true, force: true });
+    fs.mkdirSync(cloudflaredDestination, { recursive: true });
+    if (!runtimeOnly && target?.platform === "linux") {
+      execFileSync(
+        path.join(root, "scripts/stage-cloudflared-linux.sh"),
+        [target.arch === "arm64" ? "arm64" : "x86_64", cloudflaredDestination],
+        { cwd: root, stdio: "inherit" },
+      );
     }
     fs.rmSync(destination, { recursive: true, force: true });
     fs.renameSync(work, destination);
