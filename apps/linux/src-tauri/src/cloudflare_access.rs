@@ -599,7 +599,7 @@ pub(crate) fn ensure_session(
             return Ok(());
         };
         if !interactive {
-            return Err("Your Gateway browser sign-in has expired. Open Connection Settings and choose Connect to Gateway to sign in again.".into());
+            return Err("This Gateway needs you to sign in with your browser. Choose Retry to open the sign-in page.".into());
         }
         save(sign_in(&app, &application).await?)
     })

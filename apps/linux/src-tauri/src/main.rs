@@ -833,6 +833,17 @@ impl DesktopState {
                 })
             })
             .and_then(|request| {
+                // Retry is the person's click, so it may open the Access sign-in.
+                #[cfg(target_os = "linux")]
+                if request.transport != "ssh" {
+                    if let Some(url) = request.url.as_deref() {
+                        cloudflare_access::ensure_session(
+                            app,
+                            &remote_gateway::normalize_gateway_url(url)?,
+                            true,
+                        )?;
+                    }
+                }
                 self.connect_remote_guarded(
                     app,
                     request,
@@ -1256,8 +1267,8 @@ impl DesktopState {
         };
         remote_gateway::resolve_remote_tls_fingerprint(&mut request, &gateway_url)?;
         // A Gateway behind Cloudflare Access needs a browser sign-in before
-        // the WebSocket or the dashboard can reach it. Only a person's own
-        // Connect opens the browser; saved reconnects report expiry instead.
+        // the WebSocket or the dashboard can reach it. Only a person's Connect
+        // or Retry (see retry_remote) opens the browser; launch reconnects ask.
         #[cfg(target_os = "linux")]
         cloudflare_access::ensure_session(
             app,
