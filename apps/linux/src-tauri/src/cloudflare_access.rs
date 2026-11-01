@@ -522,7 +522,7 @@ fn credential_service() -> &'static str {
     }
 }
 
-pub(crate) fn save(session: AccessSession) -> Result<(), String> {
+fn save(session: AccessSession) -> Result<(), String> {
     let json =
         serde_json::to_vec(&session).map_err(|_| "Could not save the sign-in.".to_string())?;
     let stored = keyring::Entry::new(credential_service(), &session.origin)
@@ -539,14 +539,20 @@ pub(crate) fn save(session: AccessSession) -> Result<(), String> {
     Ok(())
 }
 
-/// A valid saved session for this Gateway's HTTPS origin, if any.
+/// A valid signed-in session for this Gateway's HTTPS origin, if any. Reads
+/// memory only: the Secret Service client runs its own runtime, so the
+/// credential store is touched only from `ensure_session`, never from async
+/// WebSocket or WebView code.
 pub(crate) fn session_for(url: &Url) -> Option<AccessSession> {
     let origin = origin_key(url)?;
-    let now = now_secs();
-    let mut cache = sessions().lock().ok()?;
-    if let Some(session) = cache.get(&origin) {
-        return session.valid_for(url, now).then(|| session.clone());
-    }
+    let cache = sessions().lock().ok()?;
+    let session = cache.get(&origin)?;
+    session.valid_for(url, now_secs()).then(|| session.clone())
+}
+
+/// Loads a saved session from the credential store into memory. Blocking.
+fn load(url: &Url) -> Option<AccessSession> {
+    let origin = origin_key(url)?;
     let mut secret = keyring::Entry::new(credential_service(), &origin)
         .ok()?
         .get_secret()
@@ -554,8 +560,8 @@ pub(crate) fn session_for(url: &Url) -> Option<AccessSession> {
     let session = serde_json::from_slice::<AccessSession>(&secret).ok();
     secret.zeroize();
     let session = session.filter(|session| session.origin == origin)?;
-    cache.insert(origin, session.clone());
-    session.valid_for(url, now).then_some(session)
+    sessions().lock().ok()?.insert(origin, session.clone());
+    session.valid_for(url, now_secs()).then_some(session)
 }
 
 /// Gives a WebView the Access application cookie before it loads a page on
@@ -589,20 +595,22 @@ pub(crate) fn ensure_session(
     gateway: &Url,
     interactive: bool,
 ) -> Result<(), String> {
-    if origin_key(gateway).is_none() || session_for(gateway).is_some() {
+    if origin_key(gateway).is_none() || session_for(gateway).is_some() || load(gateway).is_some() {
         return Ok(());
     }
     let app = app.clone();
     let gateway = gateway.clone();
-    tauri::async_runtime::block_on(async move {
+    let session = tauri::async_runtime::block_on(async move {
         let Some(application) = discover(&app, &gateway).await? else {
-            return Ok(());
+            return Ok(None);
         };
         if !interactive {
             return Err("This Gateway needs you to sign in with your browser. Choose Retry to open the sign-in page.".into());
         }
-        save(sign_in(&app, &application).await?)
-    })
+        sign_in(&app, &application).await.map(Some)
+    })?;
+    // Outside block_on: the credential store starts its own runtime.
+    session.map_or(Ok(()), save)
 }
 
 #[cfg(test)]
