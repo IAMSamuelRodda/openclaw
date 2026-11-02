@@ -9,7 +9,7 @@
 //! the native Gateway WebSocket, and as the `CF_Authorization` cookie in
 //! dashboard and browser-tab WebViews.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -45,6 +45,9 @@ pub(crate) struct AccessSession {
     audience: String,
     subject: String,
     expires_at: u64,
+    /// Token issue time. Sessions saved before renewal existed have none.
+    #[serde(default)]
+    issued_at: u64,
     token: String,
 }
 
@@ -100,6 +103,7 @@ struct TokenClaims {
     kind: String,
     sub: String,
     exp: f64,
+    iat: Option<f64>,
     nbf: Option<f64>,
 }
 
@@ -431,6 +435,10 @@ pub(crate) async fn sign_in(
         audience: application.audience.clone(),
         subject: claims.sub,
         expires_at: claims.exp as u64,
+        issued_at: claims
+            .iat
+            .filter(|iat| iat.is_finite() && *iat > 0.0)
+            .map_or(0, |iat| iat as u64),
         token,
     })
 }
@@ -590,8 +598,10 @@ pub(crate) fn navigate(view: &Webview, url: Url) -> tauri::Result<()> {
 }
 
 fn access_cookie(url: &Url) -> Option<Cookie<'static>> {
-    let session = session_for(url)?;
-    let host = url.host_str()?;
+    session_cookie(&session_for(url)?, url.host_str()?)
+}
+
+fn session_cookie(session: &AccessSession, host: &str) -> Option<Cookie<'static>> {
     let expires = tauri::webview::cookie::time::OffsetDateTime::from_unix_timestamp(
         session.expires_at as i64,
     )
@@ -614,22 +624,171 @@ pub(crate) fn ensure_session(
     gateway: &Url,
     interactive: bool,
 ) -> Result<(), String> {
-    if origin_key(gateway).is_none() || session_for(gateway).is_some() || load(gateway).is_some() {
+    if origin_key(gateway).is_none() {
         return Ok(());
     }
-    let app = app.clone();
-    let gateway = gateway.clone();
+    if session_for(gateway).is_some() || load(gateway).is_some() {
+        schedule_renewal(app, gateway);
+        return Ok(());
+    }
+    let task_app = app.clone();
+    let task_gateway = gateway.clone();
     let session = tauri::async_runtime::block_on(async move {
-        let Some(application) = discover(&app, &gateway).await? else {
+        let Some(application) = discover(&task_app, &task_gateway).await? else {
             return Ok(None);
         };
         if !interactive {
             return Err("This Gateway needs you to sign in with your browser. Choose Retry to open the sign-in page.".into());
         }
-        sign_in(&app, &application).await.map(Some)
+        sign_in(&task_app, &application).await.map(Some)
     })?;
     // Outside block_on: the credential store starts its own runtime.
-    session.map_or(Ok(()), save)
+    let Some(session) = session else {
+        return Ok(());
+    };
+    save(session)?;
+    schedule_renewal(app, gateway);
+    Ok(())
+}
+
+// --- renewal before expiry, as the macOS app does it ---
+
+const MIN_RENEWAL_LEAD: u64 = 15 * 60;
+const MAX_RENEWAL_LEAD: u64 = 7 * 24 * 60 * 60;
+const MAX_RETRY_DELAY: u64 = 24 * 60 * 60;
+/// Sleeps are capped so a suspended computer re-checks soon after it wakes.
+const MAX_SLEEP: u64 = 5 * 60;
+
+impl AccessSession {
+    /// The last quarter of the session lifetime, at least 15 minutes and at
+    /// most 7 days (macOS `GatewayBrowserSession.renewalLeadTime`). Sessions
+    /// without an issue time keep the 15 minute window.
+    fn renewal_lead(&self) -> u64 {
+        match self.expires_at.checked_sub(self.issued_at) {
+            Some(lifetime) if self.issued_at > 0 && lifetime > 0 => {
+                (lifetime / 4).clamp(MIN_RENEWAL_LEAD, MAX_RENEWAL_LEAD)
+            }
+            _ => MIN_RENEWAL_LEAD,
+        }
+    }
+}
+
+/// What the renewal watcher does next for one saved session.
+#[derive(Debug, PartialEq, Eq)]
+enum RenewalStep {
+    Stop,
+    Wait(u64),
+    Renew,
+}
+
+fn renewal_step(session: Option<&AccessSession>, now: u64, retry_at: u64) -> RenewalStep {
+    let Some(session) = session else {
+        return RenewalStep::Stop;
+    };
+    if session.expires_at <= now {
+        return RenewalStep::Stop;
+    }
+    let due = session
+        .expires_at
+        .saturating_sub(session.renewal_lead())
+        .max(retry_at);
+    if now < due {
+        return RenewalStep::Wait((due - now).min(MAX_SLEEP));
+    }
+    RenewalStep::Renew
+}
+
+fn renewal_watchers() -> &'static Mutex<HashSet<String>> {
+    static WATCHERS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    WATCHERS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// The Gateway windows and tabs that show this origin now.
+fn views_for(app: &AppHandle, origin: &str) -> Vec<Webview> {
+    app.webviews()
+        .into_values()
+        .filter(|view| {
+            view.url()
+                .ok()
+                .and_then(|url| origin_key(&url))
+                .is_some_and(|key| key == origin)
+        })
+        .collect()
+}
+
+/// Starts one watcher per origin. While the Gateway is open, the watcher
+/// renews the sign-in in the person's browser before it expires and puts the
+/// new cookie into the open views without a reload. A failed attempt keeps
+/// the current session and tries again after half the lead time, at most
+/// daily. A session that still expires falls back to Retry.
+fn schedule_renewal(app: &AppHandle, gateway: &Url) {
+    let Some(origin) = origin_key(gateway) else {
+        return;
+    };
+    let Ok(mut watchers) = renewal_watchers().lock() else {
+        return;
+    };
+    if !watchers.insert(origin.clone()) {
+        return;
+    }
+    let app = app.clone();
+    let gateway = gateway.clone();
+    std::thread::spawn(move || {
+        let mut retry_at = 0;
+        loop {
+            let session = sessions()
+                .lock()
+                .ok()
+                .and_then(|cache| cache.get(&origin).cloned());
+            let now = now_secs();
+            match renewal_step(session.as_ref(), now, retry_at) {
+                RenewalStep::Stop => break,
+                RenewalStep::Wait(seconds) => std::thread::sleep(Duration::from_secs(seconds)),
+                RenewalStep::Renew if views_for(&app, &origin).is_empty() => {
+                    std::thread::sleep(Duration::from_secs(MAX_SLEEP));
+                }
+                RenewalStep::Renew => {
+                    let lead = session
+                        .as_ref()
+                        .map_or(MIN_RENEWAL_LEAD, AccessSession::renewal_lead);
+                    match renew(&app, &gateway) {
+                        Ok(()) => retry_at = 0,
+                        Err(error) => {
+                            eprintln!("[openclaw] Could not renew the Gateway sign-in: {error}");
+                            retry_at = now + (lead / 2).min(MAX_RETRY_DELAY);
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(mut watchers) = renewal_watchers().lock() {
+            watchers.remove(&origin);
+        }
+    });
+}
+
+/// Runs off the main thread, so `set_cookie` is queued to the event loop.
+fn renew(app: &AppHandle, gateway: &Url) -> Result<(), String> {
+    let task_app = app.clone();
+    let task_gateway = gateway.clone();
+    let session = tauri::async_runtime::block_on(async move {
+        let application = discover(&task_app, &task_gateway)
+            .await?
+            .ok_or_else(|| "The Gateway no longer asks for a browser sign-in.".to_string())?;
+        sign_in(&task_app, &application).await
+    })?;
+    let origin = session.origin.clone();
+    let host = gateway.host_str().unwrap_or_default().to_string();
+    let cookie = session_cookie(&session, &host);
+    save(session)?;
+    if let Some(cookie) = cookie {
+        for view in views_for(app, &origin) {
+            if let Err(error) = view.set_cookie(cookie.clone()) {
+                eprintln!("[openclaw] Could not refresh the Gateway sign-in cookie: {error}");
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -783,11 +942,47 @@ mod tests {
             audience: "abc123".into(),
             subject: "user-1".into(),
             expires_at: 2_000,
+            issued_at: 0,
             token: "t".into(),
         };
         assert!(session.valid_for(&Url::parse("wss://gateway.example.com/ws").unwrap(), 1_000));
         assert!(!session.valid_for(&Url::parse("wss://evil.example.com").unwrap(), 1_000));
         assert!(!session.valid_for(&Url::parse("wss://gateway.example.com").unwrap(), 2_000));
         assert!(!format!("{session:?}").contains("token: "));
+    }
+
+    #[test]
+    fn renewal_starts_in_the_last_quarter_and_backs_off_after_a_failure() {
+        let session = |issued_at: u64, expires_at: u64| AccessSession {
+            origin: "https://gateway.example.com".into(),
+            issuer: "https://team.cloudflareaccess.com".into(),
+            audience: "abc123".into(),
+            subject: "user-1".into(),
+            expires_at,
+            issued_at,
+            token: "t".into(),
+        };
+        let day = session(100_000, 100_000 + 86_400);
+        assert_eq!(day.renewal_lead(), 21_600);
+        assert_eq!(session(0, 200_000).renewal_lead(), MIN_RENEWAL_LEAD);
+        assert_eq!(session(100_000, 100_600).renewal_lead(), MIN_RENEWAL_LEAD);
+        assert_eq!(session(1, 1 + 90 * 86_400).renewal_lead(), MAX_RENEWAL_LEAD);
+
+        let due = day.expires_at - 21_600;
+        assert_eq!(renewal_step(Some(&day), due - 60, 0), RenewalStep::Wait(60));
+        assert_eq!(
+            renewal_step(Some(&day), due - 10_000, 0),
+            RenewalStep::Wait(MAX_SLEEP)
+        );
+        assert_eq!(renewal_step(Some(&day), due, 0), RenewalStep::Renew);
+        assert_eq!(
+            renewal_step(Some(&day), due, due + 100),
+            RenewalStep::Wait(100)
+        );
+        assert_eq!(
+            renewal_step(Some(&day), day.expires_at, 0),
+            RenewalStep::Stop
+        );
+        assert_eq!(renewal_step(None, due, 0), RenewalStep::Stop);
     }
 }
