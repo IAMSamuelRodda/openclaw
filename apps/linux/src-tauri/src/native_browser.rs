@@ -492,9 +492,7 @@ impl NativeBrowserState {
                 .await?;
                 current()?;
                 bootstrap.store(false, Ordering::SeqCst);
-                #[cfg(target_os = "linux")]
-                crate::cloudflare_access::prime_webview(&view, &url);
-                view.navigate(url)
+                crate::navigate_webview(&view, url)
                     .map_err(|error| format!("Could not load the browser page: {error}"))
             }
             .await;
@@ -637,9 +635,7 @@ impl NativeBrowserState {
             Request::Navigate { tab_id, url } => {
                 let url = browser_url(&url)?;
                 let view = host.view(app, &tab_id)?;
-                #[cfg(target_os = "linux")]
-                crate::cloudflare_access::prime_webview(&view, &url);
-                view.navigate(url).map_err(|error| error.to_string())?;
+                crate::navigate_webview(&view, url).map_err(|error| error.to_string())?;
                 if let Some(tab) = host.tabs.iter_mut().find(|tab| tab.id == tab_id) {
                     tab.initial_alias = None;
                 }

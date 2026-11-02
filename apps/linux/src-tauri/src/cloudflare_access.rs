@@ -564,15 +564,34 @@ fn load(url: &Url) -> Option<AccessSession> {
     session.valid_for(url, now_secs()).then_some(session)
 }
 
-/// Gives a WebView the Access application cookie before it loads a page on
-/// the signed-in Gateway origin. Other origins never receive it.
-pub(crate) fn prime_webview(view: &Webview, url: &Url) {
-    let Some(session) = session_for(url) else {
-        return;
+/// Loads `url` in a WebView. A WebView that opens a signed-in Gateway origin
+/// first gets the Access application cookie; other origins never receive it.
+pub(crate) fn navigate(view: &Webview, url: Url) -> tauri::Result<()> {
+    let Some(cookie) = access_cookie(&url) else {
+        return view.navigate(url);
     };
-    let Some(host) = url.host_str() else {
-        return;
-    };
+    // On the main thread, Tauri runs `set_cookie` inline while it holds the
+    // WebView's window lock, and WebKitGTK spins a nested GTK loop until the
+    // cookie is stored. A script evaluation on the same WebView from that loop
+    // (the window-state publisher) then waits on the lock forever. From another
+    // thread both calls are queued and run in order from the event loop, with
+    // no lock held, so the cookie is stored before the page loads.
+    if !gtk::glib::MainContext::default().is_owner() {
+        view.set_cookie(cookie)?;
+        return view.navigate(url);
+    }
+    let view = view.clone();
+    std::thread::spawn(move || {
+        if let Err(error) = view.set_cookie(cookie).and_then(|()| view.navigate(url)) {
+            eprintln!("[openclaw] Could not open the signed-in Gateway page: {error}");
+        }
+    });
+    Ok(())
+}
+
+fn access_cookie(url: &Url) -> Option<Cookie<'static>> {
+    let session = session_for(url)?;
+    let host = url.host_str()?;
     let expires = tauri::webview::cookie::time::OffsetDateTime::from_unix_timestamp(
         session.expires_at as i64,
     )
@@ -585,7 +604,7 @@ pub(crate) fn prime_webview(view: &Webview, url: &Url) {
     if let Some(expires) = expires {
         cookie = cookie.expires(expires);
     }
-    let _ = view.set_cookie(cookie.build());
+    Some(cookie.build())
 }
 
 /// Ensures a Gateway behind Cloudflare Access has a valid browser sign-in.

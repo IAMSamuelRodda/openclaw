@@ -1555,9 +1555,7 @@ impl DesktopState {
                     return Err("The previous dashboard is unavailable.".to_string());
                 }
                 let view = main_window(app)?;
-                #[cfg(target_os = "linux")]
-                cloudflare_access::prime_webview(&view, &url);
-                view.navigate(url)
+                navigate_webview(&view, url)
                     .map_err(|_| "Could not return to the dashboard. Try again.".to_string())?;
             }
         }
@@ -1921,9 +1919,7 @@ impl DesktopState {
             .state::<gateway_windows::GatewayWindows>()
             .navigate_document(&view, url.clone())?
         {
-            #[cfg(target_os = "linux")]
-            cloudflare_access::prime_webview(&view, &url);
-            view.navigate(url)
+            navigate_webview(&view, url)
                 .map_err(|error| format!("Could not open dashboard: {error}"))?;
         }
         if reveal_window {
@@ -3421,6 +3417,15 @@ async fn gateway_action(
     action: GatewayAction,
 ) -> Result<GatewaySnapshot, String> {
     operations.execute(GatewayOperation::Action(action)).await
+}
+
+/// Loads a page in a WebView. On Linux a signed-in Cloudflare Access Gateway
+/// page first gets its Access cookie.
+pub(crate) fn navigate_webview(view: &tauri::Webview, url: Url) -> tauri::Result<()> {
+    #[cfg(target_os = "linux")]
+    return cloudflare_access::navigate(view, url);
+    #[cfg(not(target_os = "linux"))]
+    view.navigate(url)
 }
 
 fn main() {

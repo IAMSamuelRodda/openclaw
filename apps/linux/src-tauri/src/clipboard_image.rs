@@ -4,7 +4,6 @@
 //! as the macOS app does for images WebKit cannot read (openclaw#170362).
 
 use base64::Engine;
-use gtk::prelude::*;
 
 const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 

@@ -1193,9 +1193,7 @@ impl DocumentRegistration {
                     }
                 };
                 if let Some(target) = target {
-                    #[cfg(target_os = "linux")]
-                    crate::cloudflare_access::prime_webview(&view, &target);
-                    if view.navigate(target).is_ok() {
+                    if crate::navigate_webview(&view, target).is_ok() {
                         return Ok(());
                     }
                 }
@@ -1668,9 +1666,7 @@ impl GatewayWindows {
             }
         };
         if !queued {
-            #[cfg(target_os = "linux")]
-            crate::cloudflare_access::prime_webview(view, &url);
-            view.navigate(url)
+            crate::navigate_webview(view, url)
                 .map_err(|_| "Could not navigate the Gateway document.")?;
         }
         Ok(true)
